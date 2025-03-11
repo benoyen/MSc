@@ -1,0 +1,630 @@
+---
+title: "SonoBat_workflow"
+date: "2025-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Prepare workspace
+
+```{r}
+library(readr)
+library(tidyverse)
+library(stringr)
+
+getwd()
+
+# Set up output directory
+output <- "C:/Users/bened/Documents/NMBU/Natf/Master/R_stuff/Outputs"
+file.name <- "SonoBat"
+todays_date <- Sys.Date()
+
+dir.name <- str_c(output,"/", file.name, "_", todays_date)
+dir.name
+
+output_today <- dir.name
+output_today
+
+dir.create(output_today)
+output_today
+```
+
+
+## Load files for CM-46
+
+```{r}
+sonobat_01_08_2024 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_01.08.2024_CM-46.csv", sep = ";")
+
+sonobat_14_09_2024 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_14_09_2024_CM_46.csv", sep = ";")
+
+sonobat_09_10_2024 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_09_10_2024_CM_46.csv", sep = ";")
+```
+
+
+## Merge files
+
+```{r}
+sonobat_09_10_2024 <- (rename(sonobat_09_10_2024, Filename = "X...Filename"))
+sonobat_14_09_2024 <- (rename(sonobat_14_09_2024, Filename = "X...Filename"))
+
+temp <- merge(sonobat_01_08_2024, sonobat_14_09_2024, all = TRUE)
+# 371 + 3738 = 4109
+
+sonobat_cm46 <- merge(temp, sonobat_09_10_2024, all = TRUE)
+dim(sonobat_cm46) # 5091 30
+# 4109 + 982 = 5091 -> Math adds up.
+
+write.csv(sonobat_cm46, file = file.path(output_today, "SonoBat_CM-46.csv"), row.names = FALSE)
+```
+
+
+## File cleanup
+
+```{r}
+# Extract the columns I want
+df1 <- sonobat_cm46 %>%
+  dplyr::select(Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df1$batpass = df1$HiF
+df1$batpass[!is.na(df1$LoF)] = df1$LoF[!is.na(df1$LoF)]
+df1$batpass[is.na(df1$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df1$SppAccp <- ifelse(df1$batpass == 0, "Noise", df1$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df1$SppAccp[df1$SppAccp==""] <- "NoID"
+
+df2 <- df1 %>%
+  dplyr::select(Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid))
+
+df2$site <- "CM-46"
+df2$detector <- "Song Meter Mini Bat 2 Li-ion"
+
+write.csv(df2, file = file.path(output_today, "SonoBat_CM-46_Clean.csv"), row.names = FALSE)
+```
+
+
+## Add missing noise files
+
+```{r}
+# Load Kaleidoscope Pro's results and filter out the sites I don't need
+kal <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/Kaleidoscope/Raw/Gismarvik_Utsira_2024_raw_forBenedikte.csv")
+
+kalcm46 <- kal %>% 
+  dplyr::select(IN.FILE, site) %>% # Selects the columns I want
+  filter(site == "CM-46") %>% # Filters to only include CM-46
+  rename(Filename = "IN.FILE") %>% # Renames the columns to match SonoBat
+  distinct(Filename, .keep_all= TRUE) # Removes duplicate rows in the data frame
+
+# Merge with SonoBat's CM-46 results
+df3 <- merge(kalcm46, df2, all = TRUE)
+
+table(df3$autoid)
+table(df2$autoid)
+# Number of identified species hasn't changed - good.
+
+# Assign values to the empty cells
+sb_cm46 <- df3 %>% 
+  replace_na(list(autoid = "Noise", detector = "Song Meter Mini Bat 2 Li-ion"))
+
+write.csv(sb_cm46, file = file.path(output_today, "SonoBat_CM-46_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Repeat with CM-01
+
+## Load file
+
+```{r}
+sonobat1_cm1 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_CM_01.csv", sep = ";")
+```
+
+## File cleanup
+
+```{r}
+# Extract wanted columns
+df4 <- sonobat1_cm1 %>%
+  dplyr::select(X...Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df4$batpass = df4$HiF
+df4$batpass[!is.na(df4$LoF)] = df4$LoF[!is.na(df4$LoF)]
+df4$batpass[is.na(df4$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df4$SppAccp <- ifelse(df4$batpass == 0, "Noise", df4$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df4$SppAccp[df4$SppAccp==""] <- "NoID"
+
+df5 <- df4 %>%
+  dplyr::select(X...Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(Filename = "X...Filename",
+         autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid))
+
+df5$site <- "CM-01"
+df5$detector <- "Song Meter Mini Bat 2 Li-ion"
+
+write.csv(df5, file = file.path(output_today, "SonoBat_CM-01_Clean.csv"), row.names = FALSE)
+```
+
+
+## Add missing noise files
+
+```{r}
+# Retrieve CM-01 from the Kaleidoscope file
+kalcm01 <- kal %>% 
+  dplyr::select(IN.FILE, site) %>%
+  filter(site == "CM-01") %>%
+  rename(Filename = "IN.FILE") %>%
+  distinct(Filename, .keep_all= TRUE)
+
+# Merge with SonoBat
+df6 <- merge(kalcm01, df5, all = TRUE)
+
+table(df5$autoid)
+table(df6$autoid)
+# Looks ok
+
+sb_cm01 <- df6 %>% 
+  replace_na(list(autoid = "Noise", detector = "Song Meter Mini Bat 2 Li-ion"))
+
+write.csv(sb_cm01, file = file.path(output_today, "SonoBat_CM-01_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Repeat with CM-02
+
+## Load file
+
+```{r}
+sonobat_cm2 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_CM_02.csv", sep = ";")
+```
+
+## File cleanup
+
+```{r}
+# Extract wanted columns
+df7 <- sonobat_cm2 %>%
+  dplyr::select(X...Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df7$batpass = df7$HiF
+df7$batpass[!is.na(df7$LoF)] = df7$LoF[!is.na(df7$LoF)]
+df7$batpass[is.na(df7$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df7$SppAccp <- ifelse(df7$batpass == 0, "Noise", df7$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df7$SppAccp[df7$SppAccp==""] <- "NoID"
+
+df8 <- df7 %>%
+  dplyr::select(X...Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(Filename = "X...Filename",
+         autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid))
+
+df8$site <- "CM-02"
+df8$detector <- "Song Meter Mini Bat 2 Li-ion"
+
+write.csv(df8, file = file.path(output_today, "SonoBat_CM-02_Clean.csv"), row.names = FALSE)
+```
+
+## Add missing noise files
+
+```{r}
+# Retrieve CM-02 from the Kaleidoscope file
+kalcm02 <- kal %>% 
+  dplyr::select(IN.FILE, site) %>%
+  filter(site == "CM-02") %>%
+  rename(Filename = "IN.FILE") %>%
+  distinct(Filename, .keep_all= TRUE)
+
+# Merge with SonoBat
+df9 <- merge(kalcm02, df8, all = TRUE)
+
+table(df9$autoid)
+table(df9$autoid)
+# Looks ok
+
+sb_cm02 <- df9 %>% 
+  replace_na(list(autoid = "Noise", detector = "Song Meter Mini Bat 2 Li-ion"))
+
+write.csv(sb_cm02, file = file.path(output_today, "SonoBat_CM-02_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Repeat with GI-01
+
+## Load file
+
+```{r}
+sonobat_gi01 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_GI_01.csv", sep = ";")
+```
+
+
+## File cleanup
+
+```{r}
+# Extract wanted columns
+df10 <- sonobat_gi01 %>%
+  dplyr::select(X...Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df10$batpass = df10$HiF
+df10$batpass[!is.na(df10$LoF)] = df10$LoF[!is.na(df10$LoF)]
+df10$batpass[is.na(df10$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df10$SppAccp <- ifelse(df10$batpass == 0, "Noise", df10$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df10$SppAccp[df10$SppAccp==""] <- "NoID"
+
+df11 <- df10 %>%
+  dplyr::select(X...Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(Filename = "X...Filename",
+         autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid))
+
+df11$site <- "GI-01"
+df11$detector <- "SM4-BATFS"
+
+write.csv(df11, file = file.path(output_today, "SonoBat_GI-01_Clean.csv"), row.names = FALSE)
+```
+
+
+## Add missing noise files
+
+```{r}
+# Retrieve GI-01 from the Kaleidoscope file
+kalgi01 <- kal %>% 
+  dplyr::select(IN.FILE, site) %>%
+  filter(site == "GI-01") %>%
+  rename(Filename = "IN.FILE") %>%
+  distinct(Filename, .keep_all= TRUE)
+
+# Merge with SonoBat
+df12 <- merge(kalgi01, df11, all = TRUE)
+
+table(df12$autoid)
+table(df11$autoid)
+# Looks ok
+
+sb_gi01 <- df12 %>% 
+  replace_na(list(autoid = "Noise", detector = "SM4-BATFS"))
+
+write.csv(sb_gi01, file = file.path(output_today, "SonoBat_GI-01_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Repeat with GI-03
+
+## Load file
+
+```{r}
+sonobat_gi03 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_GI_03.csv", sep = ";")
+```
+
+
+## File cleanup
+
+```{r}
+# Extract wanted columns
+df13 <- sonobat_gi03 %>%
+  dplyr::select(X...Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df13$batpass = df13$HiF
+df13$batpass[!is.na(df13$LoF)] = df13$LoF[!is.na(df13$LoF)]
+df13$batpass[is.na(df13$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df13$SppAccp <- ifelse(df13$batpass == 0, "Noise", df13$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df13$SppAccp[df13$SppAccp==""] <- "NoID"
+
+df14 <- df13 %>%
+  dplyr::select(X...Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(Filename = "X...Filename",
+         autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid))
+
+df14$site <- "GI-03"
+df14$detector <- "SM4-BATFS"
+
+write.csv(df14, file = file.path(output_today, "SonoBat_GI-03_Clean.csv"), row.names = FALSE)
+```
+
+
+## Add missing noise files
+
+```{r}
+# Retrieve GI-03 from the Kaleidoscope file
+kalgi03 <- kal %>% 
+  dplyr::select(IN.FILE, site) %>%
+  filter(site == "GI-03") %>%
+  rename(Filename = "IN.FILE") %>%
+  distinct(Filename, .keep_all= TRUE)
+
+# Merge with SonoBat
+df15 <- merge(kalgi03, df14, all = TRUE)
+
+table(df15$autoid)
+table(df14$autoid)
+# Looks ok
+
+sb_gi03 <- df15 %>% 
+  replace_na(list(autoid = "Noise", detector = "SM4-BATFS"))
+
+write.csv(sb_gi03, file = file.path(output_today, "SonoBat_GI-03_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Repeat with UT-01
+
+## Load file
+
+```{r}
+sonobat_ut01 <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/SonoBat/Raw/SonoBat1_UT_01.csv", sep = ";")
+```
+
+
+## File cleanup
+
+```{r}
+# Extract wanted columns
+df16 <- sonobat_ut01 %>%
+  dplyr::select(X...Filename, HiF, LoF, SppAccp, X.Spp, FileLength.sec., MonitoringNight)
+
+# Combine HiF and LoF into one column
+df16$batpass = df16$HiF
+df16$batpass[!is.na(df16$LoF)] = df16$LoF[!is.na(df16$LoF)]
+df16$batpass[is.na(df16$batpass)] <- 0
+
+# Label rows with batpass == 0 as "Noise"
+df16$SppAccp <- ifelse(df16$batpass == 0, "Noise", df16$SppAccp)
+
+# Label the empty rows in SppAccp as "NoID"
+df16$SppAccp[df16$SppAccp==""] <- "NoID"
+
+df17 <- df16 %>%
+  dplyr::select(X...Filename, SppAccp, X.Spp, FileLength.sec., MonitoringNight) %>%
+  rename(Filename = "X...Filename",
+         autoid = "SppAccp",
+         suggestedid = "X.Spp",
+         duration = "FileLength.sec.") %>%
+  mutate(autoid = factor(autoid),
+        MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+df17$site <- "UT-01"
+df17$detector <- "SM4-BATFS"
+
+write.csv(df17, file = file.path(output_today, "SonoBat_UT-01_Clean.csv"), row.names = FALSE)
+```
+
+
+## Add missing noise files
+
+```{r}
+# Retrieve GI-03 from the Kaleidoscope file
+kalut01 <- kal %>% 
+  dplyr::select(IN.FILE, site, DATE.12) %>%
+  filter(site == "UT-01") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all= TRUE)
+
+# Merge with SonoBat
+df18 <- merge(kalut01, df17, all = TRUE)
+
+table(df17$autoid)
+table(df18$autoid)
+# Looks ok
+
+sb_ut01 <- df18 %>% 
+  replace_na(list(autoid = "Noise", detector = "SM4-BATFS"))
+
+write.csv(sb_ut01, file = file.path(output_today, "SonoBat_UT-01_Clean_WithNoise.csv"), row.names = FALSE)
+```
+
+
+# Adding date and time to the dataset
+
+SonoBat's output only included monitoring night, which is missing from the noise files I re-added, so I need to add date and time plus the 
+missing monitoring nights. The following section is copied in from another script, but I've changed the names of the data objects so that 
+it should fit the above section.
+
+## Create subsets of the Kaleidoscope file
+
+```{r}
+time_cm01 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site == "CM-01") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all= TRUE)
+
+time_cm02 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site== "CM-02") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all = TRUE)
+
+time_cm46 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site == "CM-46") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all = TRUE)
+
+time_gi01 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site == "GI-01") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all = TRUE)
+
+time_gi03 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site == "GI-03") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all = TRUE)
+
+time_ut01 <- kal %>%
+  dplyr::select(IN.FILE, DATE, TIME, HOUR, DATE.12, TIME.12, HOUR.12, site) %>%
+  filter(site == "UT-01") %>%
+  rename(Filename = "IN.FILE",
+         MonitoringNight = "DATE.12") %>%
+  mutate(MonitoringNight = as.Date(as.character(MonitoringNight), format = "%Y-%m-%d")) %>%
+  distinct(Filename, .keep_all = TRUE)
+```
+
+
+## Combine data frames
+
+```{r}
+sb_cm01 <- mutate(sb_cm01, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+sb_cm02 <- mutate(sb_cm02, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+sb_cm46 <- mutate(sb_cm46, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+sb_gi01 <- mutate(sb_gi01, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+sb_gi03 <- mutate(sb_gi03, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+sb_ut01 <- mutate(sb_ut01, MonitoringNight = as.Date(as.character(MonitoringNight), format = "%d.%m.%Y"))
+
+df19 <- inner_join(sb_cm01, time_cm01, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+df20 <- inner_join(sb_cm02, time_cm02, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+df21 <- inner_join(sb_cm46, time_cm46, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+df22 <- inner_join(sb_gi01, time_gi01, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+df23 <- inner_join(sb_gi03, time_gi03, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+df24 <- inner_join(sb_ut01, time_ut01, by = "Filename") %>%
+  select(-ends_with(".x")) %>%
+  rename(MonitoringNight = "MonitoringNight.y",
+         site = "site.y")
+
+write.csv(df19, file = file.path(output_today, "SonoBat_CM-01_RecordingTime.csv"), row.names = FALSE)
+write.csv(df20, file = file.path(output_today, "SonoBat_CM-02_RecordingTime.csv"), row.names = FALSE)
+write.csv(df21, file = file.path(output_today, "SonoBat_CM-46_RecordingTime.csv"), row.names = FALSE)
+write.csv(df22, file = file.path(output_today, "SonoBat_GI-01_RecordingTime.csv"), row.names = FALSE)
+write.csv(df23, file = file.path(output_today, "SonoBat_GI-03_RecordingTime.csv"), row.names = FALSE)
+write.csv(df24, file = file.path(output_today, "SonoBat_UT-01_RecordingTime.csv"), row.names = FALSE)
+```
+
+
+## Combine all SonoBat sites
+
+```{r}
+temp1 <- merge(df19, df20, all = TRUE)
+dim(temp) # 12501 12
+# 9332 + 3169 = 12501
+
+temp2 <- merge(temp1, df21, all = TRUE)
+dim(temp2) # 19004 12
+# 12501 + 6503 = 19004
+
+temp3 <- merge(temp2, df22, all = TRUE)
+dim(temp3) # 26579 12
+# 19004 + 7575 = 26579
+
+temp4 <- merge(temp3, df23, all = TRUE)
+dim(temp4) # 28427 12
+# 26579 + 1848 = 28427
+
+sonobat <- merge(temp4, df24, all = TRUE)
+dim(sonobat) # 41878 12
+# 28427 + 13451 = 41878
+
+n_distinct(kaleidoscope$IN.FILE) # 41878
+# The number of rows in the SonoBat dataset match the number of input files in Kaleidoscope Pro's dataset.
+
+write.csv(sonobat, file = file.path(output_today, "SonoBat_AllSites_Noise_RecordingTime.csv"), row.names = FALSE)
+```
+
+
+# Start working to combine all classifiers into one dataset
+
+## Load files
+
+```{r}
+manual <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/Acoustic Analysis/Overview Processed Bat Data/Benedikte_ManualAcousticAnalysis_Cleaned_MissingFilesNotIncluded.csv")
+sonobat <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/R_stuff/Outputs/SonoBat_withTime_2025-03-07/SonoBat_AllSites_Noise_RecordingTime.csv")
+kaleidoscope <- read.csv("C:/Users/bened/Documents/NMBU/Natf/Master/DATA/SoftwareData/Kaleidoscope/Raw/Gismarvik_Utsira_2024_raw_forBenedikte.csv")
+```
+
+## Connect manual IDs with Kaleidoscope Pro's input files
+
+```{r}
+# Get filenames from Kaleidoscope Pro's raw file
+kal1 <- kaleidoscope %>%
+  dplyr::select(IN.FILE, OUT.FILE.FS) %>%
+  rename(filename = "OUT.FILE.FS",
+         inputfile = "IN.FILE")
+
+# Join with manual ID dataset
+df1 <- left_join(manual, kal1)
+
+# Check for duplicates
+test <- df1 %>%
+  group_by(X) %>%
+  summarise(n = n()) %>%
+  filter(n > 1) %>%
+  arrange(desc(n))
+
+# Five rows have been duplicated once each so that the output file (OUT.FILE.FS) is connected to two input files. In the Kaleidoscope Pro files,
+# the two input files have different auto IDs, but only one result is carried onwards in the combined IDs data. Four of the duplicates have been 
+# classified as noise files manually, while the remaining is a NoID. Kaleidoscope Pro has identified bats in some of the input files that 
+# have not been carried over into the combined data.
+```
